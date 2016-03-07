@@ -9,6 +9,7 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.PersistableBundle;
 import android.util.Log;
+import android.widget.Toast;
 
 import hugo.weaving.DebugLog;
 
@@ -22,16 +23,27 @@ public class MyJobService extends JobService {
 
     private final static int JOB_ID = 0x01;
 
+    public static void cancelJobs(Context context){
+        // TODO: schedule job
+        JobScheduler scheduler = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+        scheduler.cancel(JOB_ID);
+
+        //scheduler.cancelAll();
+    }
+
+
 
     @DebugLog
     public static void schedule(Context context) {
-        // TODO: schedule job
         JobScheduler scheduler = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
         JobInfo.Builder builder = new JobInfo.Builder(JOB_ID, JOB_SERVICE_NAME);
 
         // setBackOffCriteria(long initialBackoffMillis, int backoffPolicy)
-        //     initialbackoffMillis: TODO
-        //     backoffPolicy: 指定した間隔通りか、指数的に増えていくか
+        //     initialbackoffMillis: バックオフ時間算出の基準値
+        //     backoffPolicy: BACKOFF_POLICY_LINEARかBACKOFF_POLICY_EXPONENTIALを指定
+        //                    LINEARの時は current+initial * fail_count
+        //                    EXPONENTIALの時は current + initial * 2 ^ (fail_count -1)
+        //                    後にリトライされる。defaultは30sec, EXPONENTIAL。最長バックオフは5hr
         builder.setBackoffCriteria(10000, JobInfo.BACKOFF_POLICY_LINEAR);
 
         // setExtras(PersistableBundle)
@@ -40,13 +52,40 @@ public class MyJobService extends JobService {
         builder.setExtras(bundle);
 
         // setMinimumLatency()
-        //     遅延可能時間?
-        builder.setMinimumLatency(5000);
+        //     実行可能になってからの最低遅延時間を設定する
+        //     定期実行Jobには必要ないため、build()時にエラー扱いとなる
+//        builder.setMinimumLatency(5000);
 
-        // deadline?
-        builder.setOverrideDeadline(20000);
+        // setOverrideDeadline()
+        //     実行可能になってからの最大遅延時間を設定する
+        //     定期実行Jobには必要ないため、build()時にエラー扱いとなる
+//        builder.setOverrideDeadline(20000);
 
-//        builder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
+
+        // setPeriodic()
+        //     定期実行を設定する。前のJobが終わってからの経過時間(Millis)を指定する
+        //     Priodic指定した場合は、状態が変更されても継続実行される
+//        builder.setPeriodic(10000);
+
+        // setPersisted()
+        //     再起動時にJobを実行継続させるかどうか。
+        //     trueを設定した場合は、BOOT_COMPLETEDが無いとエラー扱いとなる
+        builder.setPersisted(true);
+
+
+        // setRequiredNetworkType()
+        //      Jobの実行に必要なネットワーク形態を設定する
+        //      NETWORK_TYPE_NONE: 指定なし（ありでもなしでも）
+        //      NETWORK_TYPE_ANY: なんらかのネットワーク
+        //      NETWORK_TYPE_UNMETERD: 従量制でないネットワーク
+        builder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED);
+
+        // Deviceがidle maintenance windowの時に実行するかどうか
+        // idolかつbackoffCriteriaを設定するとexceptionを拾う
+//        builder.setRequiresDeviceIdle(true);
+
+
+        // Deviceが給電状態かどうかを設定する
         builder.setRequiresCharging(true);
 
         scheduler.schedule(builder.build());
@@ -72,7 +111,7 @@ public class MyJobService extends JobService {
             @DebugLog
             public void run() {
                 try {
-                    Thread.sleep(3000);
+                    Thread.sleep(10000);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
@@ -90,7 +129,7 @@ public class MyJobService extends JobService {
                     jobFinished(mParams, false);
                 }
             }
-        }).run();
+        }).start();
 
 
         // 処理が継続している場合はtrueを返す。trueを返した場合は、処理終了時にjobFinished()をコールすること
@@ -101,11 +140,11 @@ public class MyJobService extends JobService {
     @Override
     @DebugLog
     public boolean onStopJob(JobParameters params) {
-        // 要求したJobの実行条件を満たさなくなった場合に呼び出される
+        // 要求したJobの実行中に条件を満たさなくなった場合に呼び出される
         // これが呼び出された場合は jobFinished() を呼び出すべきである
+        jobFinished(params, false);
 
-
-        // trueの場合、jobをrescheduleする
+        // trueの場合、jobをback-off設定値に合わせてrescheduleする
         // returnした後の処理実行は保証されない
         return false;
     }
